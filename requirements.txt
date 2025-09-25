@@ -1,6 +1,6 @@
 streamlit
-scikit-learn
 pandas
 numpy
-openai
+scikit-learn
 openpyxl
+huggingface_hub
