@@ -60,7 +60,7 @@ class Notifier:
 
     def send_email(self, subject: str, body: str) -> bool:
         if not self.configured:
-            st.warning("⚠️ Email not configured; skipping email send.")
+            st.warning("Email not configured; skipping email send.")
             return False
         try:
             msg = MIMEText(body)
@@ -71,7 +71,7 @@ class Notifier:
                 server.starttls()
                 server.login(self.smtp_user, self.smtp_pass)
                 server.send_message(msg)
-            st.toast("📧 Email sent", icon="✉️")
+            st.toast("Email sent")
             return True
         except Exception as e:
             st.error(f"Email failed: {e}")
@@ -133,7 +133,7 @@ def simulate_step(fridge_state: dict,
                 restock_amt = random.uniform(3.0, 10.0)
                 new_weight = curr_weight + restock_amt
                 did_restock = True
-                msg = (f"🔄 Restock: {shelf} – {product} restocked (+{restock_amt:.1f} kg). "
+                msg = (f"Restock: {shelf} – {product} restocked (+{restock_amt:.1f} kg). "
                        f"Current weight: {new_weight:.2f} kg")
                 alerts.append(msg)
                 notifier.send_email("Fridge Restock", msg)
@@ -153,7 +153,7 @@ def simulate_step(fridge_state: dict,
             if did_restock:
                 over_limit = initial_weights[shelf][product] * OVERSTOCK_FACTOR
                 if new_weight > over_limit:
-                    msg = (f"⚡ Overload: {shelf} – {product} exceeded safe limit "
+                    msg = (f"Overload: {shelf} – {product} exceeded safe limit "
                            f"({new_weight:.2f} kg > {over_limit:.2f} kg).")
                     alerts.append(msg)
                     notifier.send_email("Fridge Overstock Alert", msg)
@@ -193,13 +193,13 @@ def simulate_step(fridge_state: dict,
 
                 # Alerts
                 if is_anomaly and not did_restock:
-                    msg = (f"⚠️ Anomaly: {shelf} – {product} drop unusual (Δ={delta:.2f} kg). "
+                    msg = (f"Anomaly: {shelf} – {product} drop unusual (Δ={delta:.2f} kg). "
                            f"Current weight: {new_weight:.2f} kg")
                     alerts.append(msg)
                     notifier.send_email("Fridge Anomaly Alert", msg)
 
                 if eta_days is not None and eta_days < 7.0:
-                    msg = (f"📦 Depletion Soon: {shelf} – {product} may empty in "
+                    msg = (f"Depletion Soon: {shelf} – {product} may empty in "
                            f"{eta_days:.1f} days. Current weight: {new_weight:.2f} kg")
                     alerts.append(msg)
                     notifier.send_email("Fridge Depletion Warning", msg)
@@ -211,7 +211,7 @@ def simulate_step(fridge_state: dict,
 # -------------------------------
 
 st.set_page_config(page_title="Smart Fridge AI", layout="wide")
-st.title("🥶 Smart Industrial Fridge — Multi-Shelf AI Monitor")
+st.title("Smart Industrial Fridge — Multi-Shelf AI Monitor")
 
 with st.sidebar:
     st.subheader("Simulation Controls")
@@ -220,8 +220,8 @@ with st.sidebar:
     st.subheader("Email")
     st.caption("Uses SMTP_* secrets or environment variables. Email is optional.")
 
-run_btn = st.button("▶️ Run Simulation")
-reset_btn = st.button("🔄 Reset")
+run_btn = st.button("Run Simulation")
+reset_btn = st.button("Reset")
 
 # Session state: initial weights, current weights, histories, alerts
 if "initial_weights" not in st.session_state:
@@ -304,8 +304,9 @@ if run_btn:
         render_shelf_charts(st.session_state.histories)
         render_alerts(st.session_state.alerts)
 
-    st.success("✅ Simulation finished.")
+    st.success("Simulation finished.")
 else:
     # Render current state if not running
     render_shelf_charts(st.session_state.histories)
     render_alerts(st.session_state.alerts)
+
