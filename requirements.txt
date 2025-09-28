@@ -1,6 +1,7 @@
 streamlit
 pandas
 openpyxl
-huggingface-hub
+scikit-learn
 transformers
+huggingface_hub
 torch
