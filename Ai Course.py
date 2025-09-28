@@ -6,11 +6,11 @@ import streamlit as st
 from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from huggingface_hub import InferenceClient
+from sklearn.ensemble import IsolationForest
 
 # Hugging Face setup
-HF_TOKEN = os.getenv("HF_TOKEN")  # your Hugging Face token
+HF_TOKEN = os.getenv("HF_TOKEN")
 chronos_model = "amazon/chronos-t5-small"
-anomaly_model = "huggingface/Anomaly-Transformer"
 client = InferenceClient(token=HF_TOKEN)
 
 # -------------------------------
@@ -34,23 +34,20 @@ class EmailNotifier:
                 server.starttls()
                 server.login(self.smtp_user, self.smtp_pass)
                 server.send_message(msg)
-            st.success(f"📧 Email sent: {subject}")
+            st.success(f"Email sent: {subject}")
         except Exception as e:
-            st.error(f"❌ Email failed: {e}")
+            st.error(f"Email failed: {e}")
 
 # -------------------------------
-# AI helpers (Chronos + Anomaly Transformer)
+# AI helpers (Chronos + Isolation Forest)
 # -------------------------------
 def forecast_eta(weights):
-    """
-    Use Chronos to forecast when stock will hit ~0.
-    Input: list of historical weights.
-    """
+    """Use Chronos to forecast when stock will hit ~0."""
     try:
         input_str = ",".join([str(w) for w in weights[-30:]])  # last 30 steps
         resp = client.text_generation(
             model=chronos_model,
-            prompt=f"Forecast remaining steps until weight reaches zero. Data: {input_str}",
+            prompt=f"Forecast remaining days until stock reaches zero. Data: {input_str}",
             max_new_tokens=50
         )
         return resp.strip()
@@ -58,17 +55,15 @@ def forecast_eta(weights):
         return f"(forecast failed: {e})"
 
 def detect_anomaly(weights):
-    """
-    Use Anomaly Transformer to check for anomalies in weight series.
-    """
+    """Use Isolation Forest for anomaly detection."""
     try:
-        input_str = ",".join([str(w) for w in weights[-30:]])
-        resp = client.text_generation(
-            model=anomaly_model,
-            prompt=f"Detect anomalies in this sequence: {input_str}",
-            max_new_tokens=50
-        )
-        return resp.strip()
+        if len(weights) < 5:
+            return "Not enough data"
+        df = pd.DataFrame(weights, columns=["w"])
+        iso = IsolationForest(contamination=0.1, random_state=42)
+        preds = iso.fit_predict(df)
+        anomalies = sum(preds == -1)
+        return f"{anomalies} anomalies detected"
     except Exception as e:
         return f"(anomaly check failed: {e})"
 
@@ -113,8 +108,8 @@ def monthly_report(df, start_date, end_date):
 # Streamlit App
 # -------------------------------
 def main():
-    st.title("Smart Industrial Fridge Monitor ❄️")
-    st.markdown("Using Hugging Face (Chronos + Anomaly Transformer) + Email Reports")
+    st.title("Smart Industrial Fridge Monitor")
+    st.markdown("Using Hugging Face (Chronos) + Local Anomaly Detection + Email Reports")
 
     df = pd.read_excel("fridge_data.xlsx")
     df["date"] = pd.to_datetime(df["date"])
@@ -125,7 +120,7 @@ def main():
     start_date = st.date_input("Start date", df["date"].min().date())
     end_date = st.date_input("End date", df["date"].max().date())
 
-    if st.button("▶️ Run Monitoring"):
+    if st.button("Run Monitoring"):
         current_date = start_date
         half_day_flag = True
 
@@ -158,7 +153,7 @@ def main():
 
             current_date += timedelta(days=1)
 
-    if st.button("🔄 Reset"):
+    if st.button("Reset"):
         st.experimental_rerun()
 
 if __name__ == "__main__":
