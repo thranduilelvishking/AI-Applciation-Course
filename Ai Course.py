@@ -2,37 +2,27 @@
 import os
 import smtplib
 import pandas as pd
+import numpy as np
 import streamlit as st
-from datetime import timedelta
+from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 
+from huggingface_hub import login
+from transformers import pipeline
 from sklearn.ensemble import IsolationForest
-from transformers import AutoTokenizer, AutoModelForCausalLM
 
 # -------------------------------
-# Hugging Face Chronos setup
+# Hugging Face Setup
 # -------------------------------
-HF_TOKEN = os.getenv("HF_TOKEN")  # put in Streamlit secrets
-chronos_model = "amazon/chronos-t5-small"
+HF_TOKEN = os.getenv("HF_TOKEN")
+login(HF_TOKEN)
 
-tokenizer = AutoTokenizer.from_pretrained(chronos_model, use_auth_token=HF_TOKEN)
-model = AutoModelForCausalLM.from_pretrained(chronos_model, use_auth_token=HF_TOKEN)
-
-
-def forecast_eta(weights):
-    """Forecast using Hugging Face Chronos model."""
-    try:
-        # Last 30 values (string input)
-        input_str = " ".join([str(w) for w in weights[-30:]])
-        inputs = tokenizer(input_str, return_tensors="pt").to(model.device)
-
-        outputs = model.generate(**inputs, max_new_tokens=10)
-        forecast_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
-
-        return f"Forecast: {forecast_text}"
-    except Exception as e:
-        return f"(forecast failed: {e})"
-
+# Chronos pipeline for forecasting
+forecast_pipeline = pipeline(
+    "time-series-forecasting",
+    model="amazon/chronos-t5-small",
+    use_auth_token=HF_TOKEN
+)
 
 # -------------------------------
 # Email Notifier
@@ -59,24 +49,35 @@ class EmailNotifier:
         except Exception as e:
             st.error(f"❌ Email failed: {e}")
 
-
 # -------------------------------
-# Reporting helpers
+# AI Helpers
 # -------------------------------
-def detect_anomalies(weights):
-    """Detect anomalies using IsolationForest."""
+def forecast_eta(weights):
+    """Use Chronos to forecast when weight will reach ~0."""
     try:
-        if len(weights) < 5:
-            return "Not enough data"
+        result = forecast_pipeline(weights, prediction_length=7)
+        forecast_values = result[0]["prediction"]
+        if min(forecast_values) <= 0:
+            return f"Stock may run out in next {forecast_values.index(min(forecast_values)) + 1} days"
+        else:
+            return f"Safe for next 7 days (lowest forecast={min(forecast_values):.2f}kg)"
+    except Exception as e:
+        return f"(forecast failed: {e})"
+
+def detect_anomalies(weights):
+    """Local anomaly detection using IsolationForest."""
+    try:
+        X = np.array(weights).reshape(-1, 1)
         iso = IsolationForest(contamination=0.1, random_state=42)
-        X = pd.DataFrame(weights, columns=["w"])
         preds = iso.fit_predict(X)
-        anomalies = (preds == -1).sum()
+        anomalies = sum(preds == -1)
         return f"{anomalies} anomalies detected"
     except Exception as e:
         return f"(anomaly check failed: {e})"
 
-
+# -------------------------------
+# Reports
+# -------------------------------
 def weekly_report(df, start_date, end_date):
     subset = df[(df["date"] >= start_date) & (df["date"] <= end_date)]
     lines = [f"Weekly Report ({start_date.date()} → {end_date.date()})"]
@@ -93,7 +94,6 @@ def weekly_report(df, start_date, end_date):
             f"Initial={initial:.2f}kg, Current={current:.2f}kg, ETA={eta}, Anomaly={anomaly_flag}"
         )
     return "\n".join(lines)
-
 
 def monthly_report(df, start_date, end_date):
     subset = df[(df["date"] >= start_date) & (df["date"] <= end_date)]
@@ -112,15 +112,13 @@ def monthly_report(df, start_date, end_date):
         )
     return "\n".join(lines)
 
-
 # -------------------------------
 # Streamlit App
 # -------------------------------
 def main():
     st.title("Smart Industrial Fridge Monitor ❄️")
-    st.markdown("Prototype using Hugging Face Chronos + IsolationForest + Email Reports")
+    st.markdown("Using Hugging Face Chronos + IsolationForest + Email Reports")
 
-    # Load dataset
     df = pd.read_excel("fridge_data.xlsx")
     df["date"] = pd.to_datetime(df["date"])
 
@@ -151,12 +149,12 @@ def main():
                 )
                 half_day_flag = True
 
-            # Weekly summary
+            # Weekly
             if (pd.to_datetime(current_date) - df["date"].min()).days % 7 == 6:
                 report = weekly_report(df, pd.to_datetime(current_date) - timedelta(days=6), pd.to_datetime(current_date))
                 notifier.send_email(f"Weekly Summary – {current_date}", report)
 
-            # Monthly summary
+            # Monthly
             if pd.to_datetime(current_date) == df["date"].max():
                 report = monthly_report(df, df["date"].min(), df["date"].max())
                 notifier.send_email(f"Monthly Summary – {current_date}", report)
@@ -165,7 +163,6 @@ def main():
 
     if st.button("🔄 Reset"):
         st.experimental_rerun()
-
 
 if __name__ == "__main__":
     main()
