@@ -6,12 +6,19 @@ import streamlit as st
 from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from huggingface_hub import InferenceClient
-from sklearn.ensemble import IsolationForest
+from transformers import pipeline
 
 # Hugging Face setup
-HF_TOKEN = os.getenv("HF_TOKEN")
+HF_TOKEN = os.getenv("HF_TOKEN")  # your Hugging Face token
 chronos_model = "amazon/chronos-t5-small"
 client = InferenceClient(token=HF_TOKEN)
+
+# Chronos pipeline for time-series forecasting
+forecast_pipeline = pipeline(
+    "time-series-forecasting",
+    model=chronos_model,
+    token=HF_TOKEN
+)
 
 # -------------------------------
 # Email Notifier
@@ -39,33 +46,30 @@ class EmailNotifier:
             st.error(f"Email failed: {e}")
 
 # -------------------------------
-# AI helpers (Chronos + Isolation Forest)
+# AI helpers
 # -------------------------------
 def forecast_eta(weights):
     """Use Chronos to forecast when stock will hit ~0."""
     try:
-        input_str = ",".join([str(w) for w in weights[-30:]])  # last 30 steps
-        resp = client.text_generation(
-            model=chronos_model,
-            prompt=f"Forecast remaining days until stock reaches zero. Data: {input_str}",
-            max_new_tokens=50
-        )
-        return resp.strip()
+        forecast = forecast_pipeline(weights, prediction_length=14)  # look ahead 14 days
+        preds = forecast[0]["forecast"]
+        for i, val in enumerate(preds):
+            if val <= 0:
+                return f"{i+1} days"
+        return f"> {len(preds)} days"
     except Exception as e:
         return f"(forecast failed: {e})"
 
 def detect_anomaly(weights):
-    """Use Isolation Forest for anomaly detection."""
-    try:
-        if len(weights) < 5:
-            return "Not enough data"
-        df = pd.DataFrame(weights, columns=["w"])
-        iso = IsolationForest(contamination=0.1, random_state=42)
-        preds = iso.fit_predict(df)
-        anomalies = sum(preds == -1)
-        return f"{anomalies} anomalies detected"
-    except Exception as e:
-        return f"(anomaly check failed: {e})"
+    """
+    Placeholder anomaly detector.
+    For now, return simple rule-based anomalies.
+    """
+    if len(weights) < 2:
+        return "No data"
+    diffs = [abs(weights[i] - weights[i-1]) for i in range(1, len(weights))]
+    anomalies = sum(1 for d in diffs if d > 5)  # threshold = 5kg sudden change
+    return f"{anomalies} anomalies detected"
 
 # -------------------------------
 # Reporting
@@ -109,7 +113,7 @@ def monthly_report(df, start_date, end_date):
 # -------------------------------
 def main():
     st.title("Smart Industrial Fridge Monitor")
-    st.markdown("Using Hugging Face (Chronos) + Local Anomaly Detection + Email Reports")
+    st.markdown("Using Hugging Face Chronos + Email Reports")
 
     df = pd.read_excel("fridge_data.xlsx")
     df["date"] = pd.to_datetime(df["date"])
@@ -127,7 +131,7 @@ def main():
         while current_date <= end_date:
             day_data = df[df["date"] == pd.to_datetime(current_date)]
 
-            # Half-day vs full-day
+            # Half-day vs full-day reports
             if half_day_flag:
                 notifier.send_email(
                     f"Half-Day Report – {current_date}",
@@ -141,12 +145,12 @@ def main():
                 )
                 half_day_flag = True
 
-            # Weekly
+            # Weekly report
             if (pd.to_datetime(current_date) - df["date"].min()).days % 7 == 6:
                 report = weekly_report(df, pd.to_datetime(current_date) - timedelta(days=6), pd.to_datetime(current_date))
                 notifier.send_email(f"Weekly Summary – {current_date}", report)
 
-            # Monthly
+            # Monthly report
             if pd.to_datetime(current_date) == df["date"].max():
                 report = monthly_report(df, df["date"].min(), df["date"].max())
                 notifier.send_email(f"Monthly Summary – {current_date}", report)
